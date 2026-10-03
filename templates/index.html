@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cacak Times - Word & Logic Games</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1><span style="color: #e50914;">C</span><span style="color: #ffcd00;">ac</span><span style="color: #2b9d1e;">k</span> Times</h1>
+        <p>Word & Logic Games Hub</p>
+    </header>
+
+    <main>
+        <section class="game-selector">
+            <h2>Select a Game</h2>
+            <div class="games-grid" id="gamesGrid">
+                <!-- Games will be loaded here -->
+            </div>
+        </section>
+
+        <section class="active-game" id="activeGame">
+            <!-- Active game UI will be inserted here -->
+        </section>
+    </main>
+
+    <footer>
+        <p>Cacak Times • Built with Flask & Pete's brainrot</p>
+    </footer>
+
+    <script>
+        // Initialize games state
+        let currentGame = null;
+        let gameData = {};
+
+        // Game data - words, puzzles, etc.
+        const gamesData = {
+            wordle: {
+                wordList: ['apple', 'berry', 'cherry', 'dragon', 'eagle', 'grape', 'honey', 'lemon', 'mango', 'orange', 'peach', 'strawberry', 'watermelon'],
+                maxAttempts: 6
+            },
+            spellingbee: {
+                grid: [],
+                center: ''
+            },
+            connections: {
+                words: [],
+                categories: {}
+            },
+            sudoku: {
+                puzzle: [],
+                solution: []
+            },
+            crossword: {
+                grid: [],
+                cluesAcross: [],
+                cluesDown: []
+            },
+            twenty48: {
+                grid: [],
+                score: 0
+            },
+            minesweeper: {
+                grid: [],
+                size: 9,
+                mines: 10
+            }
+        };
+
+        // Load games page
+        async function loadGames() {
+            const response = await fetch('/api/games/available');
+            if (response.ok) {
+                const data = await response.json();
+                renderGames(data.games);
+            } else {
+                renderDefaultGames();
+            }
+        }
+
+        function renderGames(availableGames) {
+            const grid = document.getElementById('gamesGrid');
+            grid.innerHTML = '';
+
+            availableGames.forEach(game => {
+                const div = document.createElement('div');
+                div.className = 'game-card';
+                div.innerHTML = `
+                    <div class="game-icon">${game.icon}</div>
+                    <div class="game-name">${game.name}</div>
+                `;
+                div.addEventListener('click', () => startGame(game.id));
+                grid.appendChild(div);
+            });
+        }
+
+        function renderDefaultGames() {
+            const grid = document.getElementById('gamesGrid');
+            const defaultGames = [
+                { id: 'wordle', name: 'Wordle', icon: '🟢' },
+                { id: 'spellingbee', name: 'Spelling Bee', icon: '🍯' },
+                { id: 'connections', name: 'Connections', icon: '🔗' },
+                { id: 'sudoku', name: 'Sudoku', icon: '🧩' },
+                { id: 'crossword', name: 'Mini Crossword', icon: '🧩' },
+                { id: 'twenty48', name: '2048', icon: '🔢' },
+                { id: 'minesweeper', name: 'Minesweeper', icon: '💣' }
+            ];
+
+            defaultGames.forEach(game => {
+                const div = document.createElement('div');
+                div.className = 'game-card';
+                div.innerHTML = `
+                    <div class="game-icon">${game.icon}</div>
+                    <div class="game-name">${game.name}</div>
+                `;
+                div.addEventListener('click', () => startGame(game.id));
+                grid.appendChild(div);
+            });
+        }
+
+        async function startGame(gameId) {
+            // Hide game selector, show active game
+            document.getElementById('gamesGrid').style.display = 'none';
+            document.getElementById('activeGame').innerHTML = '<div class="loading">Loading game...</div>';
+
+            // Fetch game data
+            const response = await fetch(`/api/${gameId}/new`);
+            if (response.ok) {
+                gameData = await response.json();
+                currentGame = gameId;
+                renderGameUI(gameId);
+            } else {
+                document.getElementById('activeGame').innerHTML = '<div class="error">Failed to load game</div>';
+            }
+        }
+
+        function renderGameUI(gameId) {
+            const container = document.getElementById('activeGame');
+            
+            const uiMap = {
+                wordle: renderWordleUI,
+                spellingbee: renderSpellingBeeUI,
+                connections: renderConnectionsUI,
+                sudoku: renderSudokuUI,
+                crossword: renderCrosswordUI,
+                twenty48: render2048UI,
+                minesweeper: renderMinesweeperUI
+            };
+
+            if (uiMap[gameId]) {
+                container.innerHTML = uiMap[gameId]();
+                setupGameListeners(gameId);
+            } else {
+                container.innerHTML = '<div class="error">Game not available</div>';
+            }
+        }
+
+        // ---- Wordle UI ----
+        function renderWordleUI() {
+            const { word, mask } = gameData;
+            let letters = '';
+            for (let i = 0; i < 26; i++) {
+                letters += `<button class="letter-btn" data-letter="${String.fromCharCode(65+i)}">${String.fromCharCode(65+i)}</button>`;
+            }
+            
+            return `
+                <div class="wordle-game">
+                    <h3>Wordle #${gameData.currentPuzzle}</h3>
+                    <div class="word-mask" id="wordMask">${mask}</div>
+                    <div class="keyboard">${letters}</div>
+                    <div class="attempts" id="attempts"></div>
+                </div>
+            `;
+        }
+
+        // ---- Spelling Bee UI ----
+        function renderSpellingBeeUI() {
+            const { grid, center } = gameData;
+            let cells = '';
+            grid.forEach((letter, i) => {
+                const isCenter = i === 3;  // center is always index 3
+                cells += `<div class="bee-cell${isCenter ? ' center' : ''}" data-letter="${letter}">${letter}</div>`;
+            });
+            
+            return `
+                <div class="spelling-bee-game">
+                    <h3>Spelling Bee</h3>
+                    <div class="honeycomb">
+                        ${cells}
+                    </div>
+                    <p>Center letter: <span style="color: #ffd700;">${center}</span></p>
+                    <p>Words must be 4+ letters and include the center</p>
+                    <input type="text" id="spellingWord" placeholder="Enter word...">
+                    <button onclick="validateSpellingWord()">Submit</button>
+                    <div id="results"></div>
+                </div>
+            `;
+        }
+
+        // ---- Connections UI ----
+        function renderConnectionsUI() {
+            const { words, categories } = gameData;
+            
+            let wordButtons = '';
+            words.forEach(word => {
+                wordButtons += `<button class="connect-word" data-word="${word}">${word}</button>`;
+            });
+            
+            return `
+                <div class="connections-game">
+                    <h3>Connections</h3>
+                    <div class="words-grid">${wordButtons}</div>
+                    <div class="categories" id="categories"></div>
+                    <button onclick="submitConnectionsGuess()">Submit Groups</button>
+                </div>
+            `;
+        }
+
+        // ---- Sudoku UI ----
+        function renderSudokuUI() {
+            const { puzzle, solution } = gameData;
+            let gridHTML = '';
+            
+            for (let r = 0; r < 9; r++) {
+                gridHTML += '<div class="sudoku-row">';
+                for (let c = 0; c < 9; c++) {
+                    const val = puzzle[r][c] || '';
+                    const isHint = puzzle[r][c] !== 0;
+                    gridHTML += `<div class="sudoku-cell${isHint ? ' hint' : ''}" data-pos="${r}${c}">${val}</div>`;
+                }
+                gridHTML += '</div>';
+            }
+            
+            return `
+                <div class="sudoku-game">
+                    <h3>Sudoku</h3>
+                    <div class="sudoku-grid">${gridHTML}</div>
+                    <button onclick="resetSudoku()">New Puzzle</button>
+                </div>
+            `;
+        }
+
+        // ---- Mini Crossword UI ----
+        function renderCrosswordUI() {
+            const { grid, cluesAcross, cluesDown } = gameData;
+            
+            let gridHTML = '';
+            for (let r = 0; r < 5; r++) {
+                gridHTML += '<div class="crossword-row">';
+                for (let c = 0; c < 5; c++) {
+                    const val = grid[r][c] || '';
+                    gridHTML += `<div class="crossword-cell">${val}</div>`;
+                }
+                gridHTML += '</div>';
+            }
+            
+            let acrossHTML = cluesAcross.map(([num, clue]) => `<div><strong>${num}:</strong> ${clue}</div>`).join('');
+            let downHTML = cluesDown.map(([num, clue]) => `<div><strong>${num}:</strong> ${clue}</div>`).join('');
+            
+            return `
+                <div class="crossword-game">
+                    <h3>Mini Crossword</h3>
+                    <div class="crossword-grid">${gridHTML}</div>
+                    <div class="clues">
+                        <h4>Across</h4>${acrossHTML}
+                        <h4>Down</h4>${downHTML}
+                    </div>
+                </div>
+            `;
+        }
+
+        // ---- 2048 UI ----
+        function render2048UI() {
+            const { grid, score } = gameData;
+            let tiles = '';
+            
+            grid.forEach(row => {
+                tiles += '<div class="row">';
+                row.forEach(val => {
+                    tiles += `<div class="tile">${val || ''}</div>`;
+                });
+                tiles += '</div>';
+            });
+            
+            return `
+                <div class="twenty48-game">
+                    <h3>2048</h3>
+                    <div class="board">${tiles}</div>
+                    <p>Score: <span id="2048Score">${score}</span></p>
+                    <div class="controls">
+                        <button onclick="move2048('up')">↑</button>
+                        <button onclick="move2048('left')">←</button>
+                        <button onclick="move2048('right')">→</button>
+                        <button onclick="move2048('down')">↓</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ---- Minesweeper UI ----
+        function renderMinesweeperUI() {
+            const { grid, size } = gameData;
+            let cells = '';
+            
+            for (let r = 0; r < size; r++) {
+                cells += '<div class="row">';
+                for (let c = 0; c < size; c++) {
+                    const val = grid[r][c];
+                    const isMine = val === -1;
+                    cells += `<div class="minesweeper-cell${isMine ? ' mine' : ''}" data-row="${r}" data-col="${c}">${isMine ? '💣' : (val || '')}</div>`;
+                }
+                cells += '</div>';
+            }
+            
+            return `
+                <div class="minesweeper-game">
+                    <h3>Minesweeper</h3>
+                    <p>Find all safe cells without hitting a mine</p>
+                    <div class="board">${cells}</div>
+                    <div class="controls">
+                        <button onclick="newMinesweeper()">New Game</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ---- Game listeners ----
+        function setupGameListeners(gameId) {
+            switch(gameId) {
+                case 'wordle':
+                    setupWordleListeners();
+                    break;
+                case 'spellingbee':
+                    setupSpellingBeeListeners();
+                    break;
+                case 'connections':
+                    setupConnectionsListeners();
+                    break;
+                case 'sudoku':
+                    setupSudokuListeners();
+                    break;
+                case 'crossword':
+                    setupCrosswordListeners();
+                    break;
+                case 'twenty48':
+                    setup2048Listeners();
+                    break;
+                case 'minesweeper':
+                    setupMinesweeperListeners();
+                    break;
+            }
+        }
+
+        // Wordle listeners
+        function setupWordleListeners() {
+            document.querySelectorAll('.letter-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const letter = btn.dataset.letter;
+                    updateWordleLetter(letter);
+                });
+            });
+        }
+
+        function updateWordleLetter(letter) {
+            // Update mask and attempts
+        }
+
+        // Spelling Bee listeners
+        function setupSpellingBeeListeners() {
+            document.getElementById('spellingWord').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    validateSpellingWord();
+                }
+            });
+        }
+
+        function validateSpellingWord() {
+            const word = document.getElementById('spellingWord').value.trim();
+            if (!word) return;
+            
+            fetch('/api/spelling-bee/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    word: word.toLowerCase(),
+                    grid: gameData.grid,
+                    center: gameData.center
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('results').innerHTML = 
+                    data.valid ? `<span style="color: green;">✓ Valid!</span>` : `<span style="color: red;">✗ Not valid</span>`;
+            });
+        }
+
+        // Connections listeners
+        function setupConnectionsListeners() {
+            document.querySelectorAll('.connect-word').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    btn.classList.toggle('selected');
+                });
+            });
+        }
+
+        function submitConnectionsGuess() {
+            const selected = document.querySelectorAll('.connect-word.selected');
+            if (selected.length !== 4) {
+                alert('Select exactly 4 words');
+                return;
+            }
+            
+            const words = Array.from(selected).map(btn => btn.dataset.word);
+            fetch('/api/connections/guess', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ groups: [words] })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert('Groups checked: ' + JSON.stringify(data));
+            });
+        }
+
+        // Sudoku listeners
+        function setupSudokuListeners() {
+            document.querySelectorAll('.sudoku-cell').forEach(cell => {
+                cell.addEventListener('click', () => {
+                    const pos = cell.dataset.pos;
+                    // Handle cell click - enter number
+                });
+            });
+        }
+
+        function resetSudoku() {
+            fetch('/api/sudoku/new')
+            .then(res => res.json())
+            .then(data => {
+                gameData = data;
+                renderSudokuUI();
+            });
+        }
+
+        // 2048 listeners
+        function setup2048Listeners() {
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const direction = btn.dataset.direction;
+                    move2048(direction);
+                });
+            });
+        }
+
+        function move2048(direction) {
+            fetch('/api/2048/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ direction })
+            })
+            .then(res => res.json())
+            .then(data => {
+                gameData = data;
+                render2048UI();
+            });
+        }
+
+        // Minesweeper listeners
+        function setupMinesweeperListeners() {
+            document.querySelectorAll('.minesweeper-cell:not(.mine)').forEach(cell => {
+                cell.addEventListener('click', () => {
+                    const row = cell.dataset.row;
+                    const col = cell.dataset.col;
+                    
+                    fetch('/api/minesweeper/click', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ row: parseInt(row), col: parseInt(col) })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        renderMinesweeperUI();
+                    });
+                });
+            });
+        }
+
+        // New Minesweeper
+        window.newMinesweeper = function() {
+            fetch('/api/minesweeper/new')
+            .then(res => res.json())
+            .then(data => {
+                gameData = data;
+                renderMinesweeperUI();
+            });
+        };
+
+        // Initialize on load
+        window.onload = () => {
+            loadGames();
+        };
+    </script>
+    <style>
+        :root {
+            --primary: #e50914;
+            --secondary: #ffcd00;
+            --tertiary: #2b9d1e;
+            --bg: #0d0d0d;
+            --card: #1a1a1a;
+            --text: #ffffff;
+            --muted: #888888;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--primary), #c40e18);
+            padding: 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin: 0;
+            letter-spacing: 2px;
+        }
+
+        h1 span {
+            display: block;
+        }
+
+        p {
+            color: var(--muted);
+            margin-top: 0.5rem;
+        }
+
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .game-selector {
+            margin-bottom: 3rem;
+        }
+
+        .game-selector h2 {
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+        }
+
+        .game-card {
+            background: var(--card);
+            border: 2px solid var(--muted);
+            border-radius: 10px;
+            padding: 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .game-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .game-card:hover .game-icon {
+            transform: scale(1.1);
+        }
+
+        .game-icon {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .game-name {
+            font-size: 1rem;
+            color: var(--text);
+        }
+
+        .active-game {
+            min-height: 400px;
+            background: var(--card);
+            border-radius: 10px;
+            padding: 2rem;
+        }
+
+        .loading {
+            text-align: center;
+            color: var(--muted);
+            padding: 2rem;
+        }
+
+        .error {
+            color: #ff5252;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        /* Wordle Styles */
+        .wordle-game {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .word-mask {
+            font-size: 2rem;
+            letter-spacing: 1rem;
+            margin: 1rem 0;
+            min-height: 3rem;
+        }
+
+        .keyboard {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+
+        .letter-btn {
+            background: var(--card);
+            border: 1px solid var(--muted);
+            color: var(--text);
+            padding: 0.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .letter-btn:hover {
+            border-color: var(--primary);
+        }
+
+        .attempts {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+
+        /* Spelling Bee Styles */
+        .spelling-bee-game {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .honeycomb {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin: 1rem 0;
+            flex-wrap: wrap;
+        }
+
+        .bee-cell {
+            width: 40px;
+            height: 40px;
+            background: var(--card);
+            border: 2px solid var(--muted);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: var(--text);
+            min-width: 40px;
+        }
+
+        .bee-cell.center {
+            border-color: var(--secondary);
+            color: var(--primary);
+        }
+
+        .spelling-bee-game input {
+            width: 100%;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            background: var(--bg);
+            border: 1px solid var(--muted);
+            color: var(--text);
+            border-radius: 5px;
+        }
+
+        .spelling-bee-game button {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .spelling-bee-game button:hover {
+            background: #c40e18;
+        }
+
+        .spelling-bee-game #results {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+
+        /* Connections Styles */
+        .connections-game {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .words-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+
+        .connect-word {
+            background: var(--card);
+            border: 1px solid var(--muted);
+            color: var(--text);
+            padding: 0.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        .connect-word.selected {
+            border-color: var(--secondary);
+            background: var(--secondary);
+            color: var(--bg);
+        }
+
+        .categories {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+
+        .connections-game button {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+
+        .connections-game button:hover {
+            background: #c40e18;
+        }
+
+        /* Sudoku Styles */
+        .sudoku-game {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            gap: 1px;
+            background: #333;
+        }
+
+        .sudoku-row {
+            display: flex;
+        }
+
+        .sudoku-cell {
+            width: 40px;
+            height: 40px;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .sudoku-cell.hint {
+            color: var(--muted);
+        }
+
+        .sudoku-game button {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+
+        /* Crossword Styles */
+        .crossword-game {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .crossword-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 2px;
+            width: fit-content;
+            margin: 0 auto;
+        }
+
+        .crossword-row {
+            display: flex;
+        }
+
+        .crossword-cell {
+            width: 50px;
+            height: 50px;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border: 1px solid var(--muted);
+        }
+
+        .clues {
+            margin-top: 1rem;
+        }
+
+        .clues h4 {
+            margin: 0.5rem 0;
+            font-size: 0.8rem;
+        }
+
+        .clues div {
+            margin: 0.2rem 0;
+            font-size: 0.7rem;
+        }
+
+        /* 2048 Styles */
+        .twenty48-game {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px;
+            width: fit-content;
+            margin: 1rem auto;
+        }
+
+        .row {
+            display: flex;
+        }
+
+        .tile {
+            background: var(--bg);
+            color: var(--text);
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            border-radius: 5px;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .controls button {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .controls button:hover {
+            background: #c40e18;
+        }
+
+        /* Minesweeper Styles */
+        .minesweeper-game {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .board .row {
+            display: flex;
+        }
+
+        .minesweeper-cell {
+            width: 35px;
+            height: 35px;
+            background: var(--bg);
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            border: 1px solid var(--muted);
+            cursor: pointer;
+        }
+
+        .minesweeper-cell.mine {
+            background: #ff5252;
+            color: white;
+        }
+
+        .minesweeper-game p {
+            text-align: center;
+            margin: 1rem 0;
+            color: var(--muted);
+        }
+
+        .minesweeper-game button {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+    </style>
+</body>
+</html>
